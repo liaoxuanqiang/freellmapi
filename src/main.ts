@@ -1,10 +1,11 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, dialog } from 'electron';
-import { startServer, ensureSessionToken } from './server.mjs';
+import { app, dialog, ipcMain, clipboard } from 'electron';
+import { startServer, ensureSessionToken, getUnifiedApiKey } from './server.mjs';
 import { loadConfig, saveConfig } from './config.js';
 import { buildTray } from './tray.js';
 import { openDashboard } from './window.js';
+import { todayStats, hourlyRequests, successRateToday } from './stats.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORT = 31415;
@@ -27,6 +28,25 @@ if (!app.requestSingleInstanceLock()) {
   // The app lives in the tray; closing the dashboard window must not quit.
   app.on('window-all-closed', () => {});
 
+  // ── popover IPC ──────────────────────────────────────────────────────────
+  ipcMain.handle('freeapi:snapshot', () => {
+    const s = todayStats();
+    return {
+      port: resolvedPort,
+      requests: s.requests,
+      tokens: s.tokens,
+      lastModel: s.lastModel,
+      successRate: successRateToday(),
+      hourly: hourlyRequests(),
+      loginItem: app.getLoginItemSettings().openAtLogin,
+    };
+  });
+  ipcMain.handle('freeapi:open-dashboard', () => openDashboard(resolvedPort, sessionToken));
+  ipcMain.handle('freeapi:copy-base-url', () => clipboard.writeText(`http://127.0.0.1:${resolvedPort}/v1`));
+  ipcMain.handle('freeapi:copy-api-key', () => clipboard.writeText(getUnifiedApiKey()));
+  ipcMain.handle('freeapi:set-login-item', (_e, open: boolean) => app.setLoginItemSettings({ openAtLogin: open }));
+  ipcMain.handle('freeapi:quit', () => app.quit());
+
   app.whenReady().then(async () => {
     if (process.platform === 'darwin') app.dock?.hide();
 
@@ -48,8 +68,27 @@ if (!app.requestSingleInstanceLock()) {
       resolvedPort = port;
       saveConfig({ ...cfg, port });
       sessionToken = ensureSessionToken();
-      buildTray(port, sessionToken);
+      const tray = buildTray(port, sessionToken);
       console.log(`[desktop] FreeLLMAPI running on http://127.0.0.1:${port}`);
+
+      // Dev-only UI verification: FREEAPI_SHOT=1 opens the popover and the
+      // dashboard, captures both to /tmp, and quits. Never set when packaged.
+      if (process.env.FREEAPI_SHOT && !app.isPackaged) {
+        const fs = await import('node:fs');
+        const { togglePopover, getPopoverWindow } = await import('./popover.js');
+        const { getDashboardWindow } = await import('./window.js');
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        await sleep(800);
+        togglePopover(tray);
+        await sleep(1500);
+        const pop = await getPopoverWindow()?.webContents.capturePage();
+        if (pop) fs.writeFileSync('/tmp/freeapi-popover.png', pop.toPNG());
+        openDashboard(port, sessionToken);
+        await sleep(3000);
+        const dash = await getDashboardWindow()?.webContents.capturePage();
+        if (dash) fs.writeFileSync('/tmp/freeapi-dashboard.png', dash.toPNG());
+        app.quit();
+      }
     } catch (err: any) {
       dialog.showErrorBox(
         'FreeLLMAPI failed to start',

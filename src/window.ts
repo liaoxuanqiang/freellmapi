@@ -6,6 +6,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let dashboardWindow: BrowserWindow | null = null;
 
+export function getDashboardWindow(): BrowserWindow | null {
+  return dashboardWindow;
+}
+
 // One window at a time, destroyed on close — the app lives in the tray, the
 // window is an on-demand view. The session token rides in via
 // additionalArguments so the CJS preload can seed localStorage before any
@@ -23,6 +27,12 @@ export function openDashboard(port: number, token: string): void {
     minWidth: 720,
     minHeight: 480,
     title: 'FreeLLMAPI',
+    // Native feel: traffic lights float over the app's own header (the client
+    // adds a drag region + left padding when it detects the desktop shell).
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const }
+      : {}),
+    backgroundColor: '#09090b',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

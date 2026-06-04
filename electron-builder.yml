@@ -4,6 +4,7 @@ directories:
   output: dist-electron
 files:
   - build/**/*
+  - renderer/**/*
   - assets/**/*
   - "!**/*.map"
 asar: true

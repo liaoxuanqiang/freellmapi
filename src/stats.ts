@@ -33,3 +33,39 @@ export function formatTokens(n: number): string {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
 }
+
+// 24 hourly buckets, oldest → newest, for the popover chart. created_at is
+// UTC "YYYY-MM-DD HH:MM:SS" text — parse with an explicit Z.
+export function hourlyRequests(): number[] {
+  const buckets = new Array<number>(24).fill(0);
+  try {
+    const rows = getDb().prepare(
+      "SELECT created_at FROM requests WHERE created_at >= datetime('now', '-24 hours')",
+    ).all() as { created_at: string }[];
+    const now = Date.now();
+    for (const r of rows) {
+      const t = Date.parse(r.created_at.replace(' ', 'T') + 'Z');
+      if (Number.isNaN(t)) continue;
+      const hoursAgo = Math.floor((now - t) / 3_600_000);
+      if (hoursAgo >= 0 && hoursAgo < 24) buckets[23 - hoursAgo]++;
+    }
+  } catch {
+    // fresh DB / no requests table content — all zeros is fine
+  }
+  return buckets;
+}
+
+export function successRateToday(): number | null {
+  try {
+    const row = getDb().prepare(`
+      SELECT COUNT(*) AS total,
+             SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS ok
+      FROM requests
+      WHERE datetime(created_at, 'localtime') >= datetime('now', 'localtime', 'start of day')
+    `).get() as { total: number; ok: number };
+    if (!row.total) return null;
+    return Math.round((row.ok / row.total) * 100);
+  } catch {
+    return null;
+  }
+}
