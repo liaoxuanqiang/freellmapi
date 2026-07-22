@@ -3,7 +3,7 @@ services:
     image: ghcr.io/tashfeenahmed/freellmapi:latest
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: Dockerfile
     env_file:
       - .env
     environment:
