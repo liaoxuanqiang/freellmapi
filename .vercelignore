@@ -26,8 +26,8 @@ server/data
 npm-debug.log*
 repo-assets
 free-ai-apis.pdf
-docs
-desktop
-docker
+/docs
+/desktop
+/docker
 *.md
 LICENSE
