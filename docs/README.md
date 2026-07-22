@@ -6,6 +6,7 @@ This index points to the focused guides in the repository. The root [README](../
 
 - [Quick start](../README.md#quick-start) — Docker one-liner, manual Docker Compose, and local development.
 - [Docker deployment](../docker/README.md) — container configuration and persistent storage.
+- [Vercel deployment](vercel-deploy.md) — deploy on Vercel using Dockerfile.vercel.
 - [Desktop app](../desktop/README.md) — build and package the Electron application.
 - [Android with Termux](install/android-termux.md) — experimental local installation using Node's built-in SQLite driver.
 

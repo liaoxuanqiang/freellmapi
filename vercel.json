@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "name": "freellmapi",
+  "description": "One OpenAI-compatible endpoint for 28 free LLM providers",
+  "docker": {
+    "dockerfile": "Dockerfile.vercel"
+  }
+}
