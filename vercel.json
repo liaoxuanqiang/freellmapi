@@ -1,0 +1,17 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "client/dist",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60
+    }
+  },
+  "routes": [
+    { "src": "/api/ping", "dest": "/api" },
+    { "src": "/api/(.*)", "dest": "/api" },
+    { "src": "/v1/(.*)", "dest": "/api" },
+    { "src": "/mcp/(.*)", "dest": "/api" },
+    { "handle": "filesystem" },
+    { "src": "/.*", "dest": "/api" }
+  ]
+}
