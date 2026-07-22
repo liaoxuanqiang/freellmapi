@@ -1,14 +1,30 @@
 # syntax=docker/dockerfile:1.7
+#
+# FreeLLMAPI — Vercel Container 部署用 Dockerfile
+#
+# 针对 Vercel Container (Fluid compute) 适配:
+#   1. 移除 HEALTHCHECK — Vercel 通过自己的基础设施处理健康检查
+#   2. 移除 VOLUME — Vercel 的 Docker 运行时不支持 VOLUME 指令
+#   3. 移除 ENV PORT=3001 — Vercel 自动注入 PORT 环境变量，
+#      应用已默认 process.env.PORT ?? 3001，因此不影响本地测试
+#   4. 应用监听 $PORT（Vercel 设置，默认 80）
+#
+# Vercel Container 部署说明:
+#   - Vercel 会自动检测此文件并使用 Docker 构建
+#   - 必须在 Vercel Environment Variables 中设置 ENCRYPTION_KEY
+#   - SQLite 数据存储在临时文件系统中，重启后会丢失。
+#     使用 FREEAPI_DB_BACKUP_* 环境变量配置加密备份以保持数据持久化
+#   - 首次部署后查看 Vercel 部署日志获取一次性设置码
+#   - 无需 vercel.json — Vercel Container 零配置
 
 ARG NODE_IMAGE=node:20-bookworm-slim
 
+# ─── deps ─────────────────────────────────────────────────────────────────────
+# 安装 native 模块编译工具链 (better-sqlite3 需要 python3/make/g++)，
+# 并安装 npm 依赖。这些工具只保留在 build 阶段。
 FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 
-# better-sqlite3 is a native module; on slim images without a usable prebuilt
-# binary (notably the linux/arm64 leg under QEMU) it compiles from source via
-# node-gyp, which needs Python + a C++ toolchain. These live only in the build
-# stages — the runtime image copies the already-compiled node_modules.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
@@ -20,6 +36,8 @@ COPY client/package.json ./client/
 
 RUN npm ci
 
+# ─── build ────────────────────────────────────────────────────────────────────
+# 复制全部源码，编译 server (tsc) 和 client (vite build)，然后移除 dev 依赖。
 FROM deps AS build
 WORKDIR /app
 
@@ -28,32 +46,31 @@ COPY . .
 RUN npm run build
 RUN npm prune --omit=dev
 
+# ─── runtime ───────────────────────────────────────────────────────────────────
+# 最小的运行时镜像：只复制构建产物和 production 依赖。
 FROM ${NODE_IMAGE} AS runtime
 WORKDIR /app
 
+# Vercel 会自动设置 PORT 环境变量；应用默认退回到 process.env.PORT ?? 3001。
 ENV NODE_ENV=production
-ENV PORT=3001
 
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
-# npm nests some production packages under the workspace instead of hoisting
-# them (undici lives at server/node_modules/undici). Skipping this copy shipped
-# images where the HTTP(S) proxy dispatcher failed to load and every request
-# silently went direct — issue #550.
+# npm 有时会将一些 production 包嵌套在 workspace 下而不是提升（hoist）
+# （例如 undici 位于 server/node_modules/undici）。跳过此复制会导致
+# HTTP(S) 代理分发器加载失败，每个请求静默走直连 — issue #550。
 COPY --from=build --chown=node:node /app/server/node_modules ./server/node_modules
 COPY --from=build --chown=node:node /app/shared ./shared
 COPY --from=build --chown=node:node /app/server/package.json ./server/package.json
 COPY --from=build --chown=node:node /app/server/dist ./server/dist
 COPY --from=build --chown=node:node /app/client/dist ./client/dist
 
+# Vercel 容器文件系统是临时的 (ephemeral)，重启后 SQLite 数据会丢失。
+# 使用 FREEAPI_DB_BACKUP_* 环境变量配置加密备份以保持数据持久化。
 RUN mkdir -p /app/server/data && chown -R node:node /app/server/data
 
 USER node
 
 EXPOSE 3001
-VOLUME ["/app/server/data"]
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3001) + '/api/ping').then((res) => { if (!res.ok) process.exit(1); }).catch(() => process.exit(1));"
 
 CMD ["node", "server/dist/index.js"]
